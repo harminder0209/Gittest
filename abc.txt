@@ -1,0 +1,10 @@
+ Volume in drive C is Windows7_OS
+ Volume Serial Number is 6874-64AA
+
+ Directory of C:\project
+
+03/03/2018  06:30 PM    <DIR>          .
+03/03/2018  06:30 PM    <DIR>          ..
+03/03/2018  06:30 PM                 0 abc.txt
+               1 File(s)              0 bytes
+               2 Dir(s)  225,178,304,512 bytes free
