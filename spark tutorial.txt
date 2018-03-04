@@ -1,0 +1,493 @@
+--spark shell 
+spark-shell --master yarn --deploy-mode client --conf spark.ui.port=12982 
+spark-shell --master yarn --deploy-mode cluster --conf spark.ui.port=12334 (this one is running on cluster mode)
+
+spark-shell --help
+
+spark-shell \
+--master yarn \
+--delploy-mode client \
+--conf spark.ui.pot=12442 \
+--num-executors=1 \
+--executor-memory 2G
+
+--cluster information
+
+http://rm01.itversity.com:8088/cluster
+
+
+-----------------------------
+
+import org.apache.spark.SparkConf
+
+import org.apache.spark.SparkContext
+
+val conf= new SparkConf().setMaster("yarn-client").setAppName("demo")
+
+
+-----------------------------------
+
+--reading file from hdfs
+
+val orders= sc.textFile("/user/harminder/orders/p*") // from hdfs 
+
+val orders = sc.textFile("file:///home/harminder/orders") //from local -- note we have to run in local mode to get this (will not work in yarn mode)
+
+alternative is 
+
+--put local files in HDFS ( hadoop fs -copyFromLocal source destination) 
+
+--Then use sc.textFile("") command
+
+-=-=-=-=--------------------------------
+reading from local directory
+
+import scala.io.Source
+val productList= Source.fromFile("/home/harminder/orders/part-m-00000").getLines().toList //--only 1 file name
+val productList1= Source.fromFile("/home/harminder/orders/part-m-00001").getLines().toList //--only 1 file name
+val productList2= Source.fromFile("/home/harminder/orders/part-m-00002").getLines().toList
+val productList3= Source.fromFile("/home/harminder/orders/part-m-00003").getLines().toList
+
+val combine= productList.toList++productList1.toList++productList2.toList++productList3.toList
+val productsRdds=sc.parallelize(combine)
+
+######################################33333
+
+removing header from file in local drive
+
+val prodcutlist=Source.fromFile("/home/harminder/orders/part-m-00000").getLines().drop(1).toList
+
+
+###########################3
+
+filter 
+
+val order_filter=orders.filter(x=>x.split(",")(3) =="CLOSED" | x.split(",")(3)=="COMPLETE")
+
+#########accumulatros example
+
+    def test(s:String, cnt:org.apache.spark.Accumulator[Int]): Boolean ={
+      var cnts=cnt
+      val com = s.split(",")(3) =="CLOSED" | s.split(",")(3)=="COMPLETE"
+ 
+      
+      if(com) {
+        
+        cnts+=1
+       
+      }
+      return(com)
+    }
+
+
+var acc=0
+val order_filter= orders.filter(x=>test(x,acc))
+
+//here acc will be 0
+
+if we need to find counts of closed and complted order then we hav to use accumulators
+
+val acc= sc.accumulator(0)
+
+val orderCom= orders.filter(x=>test(x,acc)) 	
+
+println(acc.value)
+
+=-=-=-=-=-=-=-=============================================================
+
+key values pairs -- get daily revenue by product
+
+val orderFilterMap=orderFilter.map(o=> (o.split(",")(0).toInt,o.split(",")(1)))
+
+-=-=-=-=-=-=-=-=-=-=-=-=-
+
+joining
+
+val orderItems=sc.textFile("/user/harminder/retail_db/order_items")
+
+val orderItemsMap= orderItems.map(o=> (o.split(",")(1).toInt,(o.split(",")(1),o.split(",")(4))))
+
+
+val orderJoin=orderFilterMap.join(orderItemsMap)
+
+--other options of join --leftOuterJoin, RightOuterJoin, fullOuterJoin
+
+val orderLeftJoin=orderFilterMap.leftOuterJoin(orderItemsMap)
+
+//getting result of those order which does not exist in OrderItems
+
+val noneOrders= orderLeftJoin.filter(x=> x._2._2==None)
+
+-=-=-=-=-==-=-=-=-=--===-=--=---------------------------=-----------------
+
+aggregating the data - -reduceByKey --good in performance
+, aggregateByKey -- good in performance
+groupByKey -- poor in performance --should be given low priority 
+
+
+---reduceByKey
+
+val orders=sc.textFile("/user/harminder/orders")
+val orderItems=sc.textFile("/user/harminder/retail_db/order_items")
+
+val orderFilter=orders.filter(x=> x.split(",")(3)=="CLOSED" | x.split(",")(3)=="COMPLETE")
+
+val orderMap= orderFilter.map(x=>(x.split(",")(0).toInt,x.split(",")(1)))
+
+val orderItemsMap= orderItems.map(x=> (x.split(",")(1).toInt,(x.split(",")(2).toInt,x.split(",")(4).toFloat)))
+
+val orderJoin=orderMap.join(orderItemsMap)
+
+val reduceMap= orderJoin.map(x=> ((x._2._1,x._2._2._1),x._2._2._2))
+
+val reduceOperation= reduceMap.reduceByKey((x,y)=>x+y)
+
+=-=-=-=-=-=-=-------
+
+SortByKey
+
+val sorting=reduceOperation.sortbyKey(true) --ascending order
+val sorting=reduceOperation.sortbyKey(false) -- descending order
+
+-------------------
+
+AggregateByKey
+
+find out number of times a product is sold and daily revenue for that product
+
+val agg= reduceMap.aggregateByKey((0,0.0))((i, rev) => (i._1+1,i._2+rev),(i1,i2)=>(i1._1+i2._1,i1._2+i2._2))
+
+=-=-=-=-=-=
+
+Broadcast variables -- when you are joining a very large dataset with small dataset
+
+--as as part of this, we need to convert it to hash map
+
+import scala.io.Source
+
+val products=Source.fromFile("/home/harminder/retail_db/products/part-00000").getLines().toList
+
+//----converting to hash map
+val productHashMap= products.map(x=> x.split(",")(0).toInt-> x.split(",")(2)).toMap //u can use tuple also instead of ->
+
+
+
+//converting hashmap into broadcast variable
+
+val bv=sc.broadcast(productHashMap)
+
+//final resutls
+val name=finalR.map(x=> ((productHashMap.value(x._1._2),x._1._1),x._2))
+
+----=-=-=---------------------------------------==================================
+SortByKey - -default is ascending 
+
+val sorted=name.sortbyKey(true)
+
+--for descending -- use false instead of true
+
+--use mkstring fucntion to convert add comma(,) between numbers
+sorted.map(x=> x._1.productIterator.mkString(",")+","+x._2).take(10).foreach(println)
+
+=-=-=-=-=-=-==-==-=-=-=-=-=-=
+
+saving as textFiles
+
+sorted.saveAsTextFile("/user/harminder/25feb/results")
+
+
+=-=-=-=-=-=-=-=-=-=--------------------
+
+Hive
+
+--create databases in hive databases
+
+create database harryFeb;
+
+use harryFeb;
+
+set hive.metastore.warehouse.dir; --- this command will give location of hdfs where hive db is stored
+
+dfs -ls /apps/hive/warehouse; -- if u need to access hdfs
+
+
+there are not any primary key , index in hive ..if they exist then they are for informationational puproses. 
+
+=-=-=-=--------------------------
+
+//create table in hive in text format
+
+create table orders(
+
+order_id int,
+orderDate string,
+order_custID int,
+order_status string
+) row format delimited fields terminated by ","
+
+stored as textFile;
+
+
+
+-=-=-=-=-==-=-
+
+show tables;
+
+=-=-==-=-=-====================-
+
+
+//Loading data into hive tables
+
+load data local inpath '/data/retail_db/orders' overwrite into table orders;  --local drive location
+
+for printing header
+// set hive.cli.print.header=true;
+
+
+//
+
+load data inpath '/user/harminder/orders' overwrite into table orders;  --hdfs location 
+
+=-=------------
+
+getting metadeta /columns of tables
+
+describe orders;
+
+and 
+
+describer formatted orders;
+
+
+-======================================
+###loading in orc format
+
+create table orderItems (
+
+order_item_id int,
+order_id int,
+productID int,
+quantity int,
+subtotal float,
+productPrice float
+
+) stored as orc;
+
+
+=-=-=-=-===========================
+
+// inserting into orc / avro is two step process
+
+  -- first - bring data into staging table
+  -- second - insert into orc/avro --using insert into table table_name select * from staging table;
+
+//orderitemstext is staging table
+
+load data inpath '/user/harminder/retail_db/order_items/order_items/' overwrite into table orderitemstext;
+insert into orderitems 
+select * from orderitemstext;
+
+-=-=-=-=-=-=-=======================
+
+if we need to access sql commands then u have to use sqlContext
+
+sqlContext.sql("use harryFeb")
+
+sqlContext.sql("show tables").show()   --  one way to display
+
+ ---another way to display
+
+sqlContext.sql("show tables").collect().foreach(println)
+
+=-------------------------------------------------------------
+
+most commonly used string function
+
+1) substring or substr --select substring("hello my name is harry",1,5) - 1 is stating position(it states from 1) and 5 is ending position
+
+ select substring(cust_street,1,4) from customer
+
+2) instr --select instr("hello my name is harry", ' ') --it will give 6 
+3) like
+4) rlike - -it is regular expression like
+5) length ---select length("hello") ; 
+6) initcap  --select initcap("heELOO Dw eeeeeR"); -- -Heeloo Dw Eeeeer IS ANSWER
+
+7) lcase or lower
+8) ucase or upper
+9) trim --trim(str) --remove leading and pending trailing space characters
+
+10) ltrim 
+11) rtrim
+12) lpad -- select lpad(2,3,'0') --002 --adding two 0 in front of 2 as we need 3 digit ...select lpad(333,3,'0') --333 since 333 is already 3 digit long 
+13) rpad --same as lpad 
+
+14) cast
+15) split - -select split("hello world how are you",' '); ---it will convert into list of strings["hello","world","how","are","you"]
+
+u can use index to get elements from list
+
+16) select index(select split("hello world how are you",' '),0) ; --this is will give first element
+
+
+##########date in hive
+
+17) select current_timestamp; equivalent to getdate()
+ 
+18) select date_format(current_date,'y'); it will give year --2017 --equivalent to datepart() in sql 
+
+19) select day(current_date) --day of month
+
+20) current_date
+21) current_timestamp
+22) date_add
+23) date_sub
+24) datediff
+25) to_date - -to_date(current_timestamp);
+26) to_unix_timestamp(current_timestamp);
+27) from_unixtimestamp(unix time stamp)
+
+
+#########################3
+
+concat
+
+28) select concat('a','v') ; av
+
+29) select date_format('2017-07-02' ,'YYYYMM') -201707
+
+30) select date_format('2017-07-02' ,'YYYYMMdd') -20170702
+
+31) select date_format('2017-07-02' ,'YYYYMMDD') -- 201707183 -- 183 IS NUMBER OF DAYS IN YEAR
+
+####################
+
+32) use distribute by instead by order by  for handling large data .for performance issues.
+
+#######
+analytics functions
+
+33) select sum(field_name) over(partition by field_name ) - -running sum
+
+34) rank() --skips number if there are duplicated --1,2,2,4,5
+
+35) dense_rank() -- does not skip the number if there are dups --1,2,2,3,4,5
+
+
+36) row_number()
+
+37) lead(col_name) over(partition by col_name)
+
+38) lag(col_name) over(partiton by col_name)
+
+39) first_value(col_name) over(partition by col_name)
+
+40) last_value(col_name) over(partition by col_name)
+
+
+
+##############################################33333
+
+
+sqlContext.sql("select * from harry_retail_db_orc.orders").show()
+
+--it is dataframe .therefore we need to use show()
+
+sqlContext.sql("select * from harry_retail_db_orc.orders").printSchema()
+
+=-------------------------------------------------
+//creating dataframe from rdd
+//difference between rdd and dataframe --> Dataframe has structure while rdd does not have structure.
+
+
+val orderitems= sc.textFile("/user/harminder/retail_db/order_items")
+
+val orderItemsDF=orderitems.map(x=> (x.split(",")(0), x.split(",")(1), x.split(",")(2), x.split(",")(3), x.split(",")(4))).toDF("item_id","order_id","productId","subtotal","productprice")
+
+
+//register as temp table
+
+orderItemsDF.registerTempTable("orderItemTemp")
+
+now you can apply any sql function 
+
+=-=-=-========================================================
+
+sqlContext.sql("select * from orderitemtemp" + " order by order_id asc").show() 
+
+sqlContext.setConf("spark.sql.shuffle.partitions","2")
+
+=--------------------------------------------=-=-=-=-=
+writing into database hive
+
+-- first create table in hive
+-- use dataframe to insert into hive table
+
+--creating table in hive
+
+create table orderItems (
+
+order_item_id int,
+order_id int,
+productID int,
+subtotal float,
+productPrice float
+
+) stored as orc;
+
+--storing in database 
+
+orderItemsDF.insertInto("orderitems") == overwrite is true or false 
+=-=-=-=-=-=-=-=-=-=----------------------------------------------
+
+using another command to save in table
+
+--saveAsTable - here we create a new table 
+
+orderItemsDF.saveAsTable("table_name")
+
+-=-=-
+
+Now if we have to write to file then use following statement
+
+-- we can use -- text , orc, json 
+
+orderItemsDF.write.json (it writes only 1 column)
+
+
+
+=----=-=-=-=========================================================
+
+Dataframe operations:
+
+1) df.show(500)
+
+2) df.insertInto --insert into hive
+
+3) df.insertIntoJDBC --insert into mysql,other databases
+
+4) df.save("path","json") -- path , 2nd varibale is mode --json ,
+
+5) df.write.json  or any other format (parquet)
+
+6) df.rdd --converts dataframe to rdd
+
+7) df.select("col_1","col_2").show()
+
+8) df.count
+
+9) df.filter(df("col_id")==="condition").show()
+
+10) df.distinct 
+
+
+-=-=--------------------------------------------------------------------
+
+#converting rdd to df and again back to rdd
+
+
+
+questions 
+
+-- how to drop first n rows reading from sc.textFile
+
