@@ -1,3 +1,5 @@
+-- Authur: Harminder Singh
+
 --spark shell 
 spark-shell --master yarn --deploy-mode client --conf spark.ui.port=12982 
 spark-shell --master yarn --deploy-mode cluster --conf spark.ui.port=12334 (this one is running on cluster mode)
