@@ -31,6 +31,8 @@ val conf= new SparkConf().setMaster("yarn-client").setAppName("demo")
 
 --reading file from hdfs
 
+import scala.io.Source
+
 val orders= sc.textFile("/user/harminder/orders/p*") // from hdfs 
 
 val orders = sc.textFile("file:///home/harminder/orders") //from local -- note we have to run in local mode to get this (will not work in yarn mode)
