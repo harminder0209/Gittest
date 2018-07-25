@@ -153,6 +153,13 @@ SortByKey
 val sorting=reduceOperation.sortbyKey(true) --ascending order
 val sorting=reduceOperation.sortbyKey(false) -- descending order
 
+but if we need to sort by second arguement use sortBy
+
+val sorts=counts.sortBy(x => -x._2)  -- descending order
+val sorts=counts.sortBy(x => x._2)  -- ascending order
+
+
+
 -------------------
 
 AggregateByKey
